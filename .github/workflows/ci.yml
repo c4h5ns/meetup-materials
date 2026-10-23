@@ -1,0 +1,49 @@
+
+name: Continuous Integration
+
+# mainブランチへのpush、およびmainに向けたPull Request時に実行
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# ソースコードの読み取りのみを許可
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. ソースコードのチェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Docker Buildxのセットアップ (高度なビルド・キャッシュ機能の有効化)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 3. Dockerイメージのビルド
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: my-app:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 4. テスト、ヘルスチェック
+      - name: Test container startup
+        run: |
+          docker run --rm -d --name test-app -p 8080:8080 my-app:${{ github.sha }}
+          sleep 3
+          # HTTPリクエストを送信して正常起動を確認
+          curl --fail http://localhost:8080/ || (docker logs test-app && exit 1)
+          docker stop test-app
