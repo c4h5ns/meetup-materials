@@ -1,0 +1,72 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+# OIDCトークン発行のために id-token の write 権限が必須
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: asia-northeast1
+  GAR_REPOSITORY: my-docker-repo
+  SERVICE_NAME: my-web-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. リポジトリのコードをチェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Workload Identity連携によるGoogle Cloud認証 (サービスアカウントキー不要)
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      # 3. Docker CLIからArtifact Registryへの認証を設定
+      - name: Set up Docker credentials for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # 4. Docker Buildxの準備
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 5. DockerイメージのビルドとArtifact Registryへのプッシュ
+      - name: Build and Push Container Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # Artifact Registry のURL形式: {リージョン}-docker.pkg.dev/{プロジェクトID}/{リポジトリ名}/{イメージ名}:{タグ}
+          tags: |
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 6. Google Cloud Runへのデプロイ
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+
+      # 7. デプロイされた公開URLをログに出力
+      - name: Show Output URL
+        run: |
+          echo "Application successfully deployed to: ${{ steps.deploy.outputs.url }}"
