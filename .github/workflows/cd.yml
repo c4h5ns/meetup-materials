@@ -13,8 +13,8 @@ permissions:
 env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: asia-northeast1
-  GAR_REPOSITORY: my-docker-repo
-  SERVICE_NAME: my-web-app
+  GAR_REPOSITORY: my-docker-repo-1
+  SERVICE_NAME: my-web-app-1
 
 jobs:
   deploy:
